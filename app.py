@@ -4,7 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # Nagłówek aplikacji
-st.title("Kalkulator Opłacalności Fotowoltaiki")
+st.title("Kalkulator Opłacalności Fotowoltaiki z Magazynem Energii i Pompą Cieplną")
 
 # Sekcja wejściowa – parametry użytkownika
 st.sidebar.header("Dane wejściowe")
@@ -17,74 +17,65 @@ naslonecznienie = st.sidebar.number_input("Nasłonecznienie w regionie (kWh/m²/
 sprawnosc_paneli = st.sidebar.slider("Sprawność paneli (%)", min_value=15, max_value=22, value=20) / 100
 moc_panelu = st.sidebar.number_input("Moc pojedynczego panelu (Wp)", min_value=200, max_value=600, value=400)
 cena_instalacji = st.sidebar.number_input("Koszt instalacji (zł/kWp)", min_value=3000, max_value=8000, value=4500)
-dotacja = st.sidebar.number_input("Dotacja (zł)", min_value=0, max_value=20000, value=5000)
-wzrost_cen_pradu = st.sidebar.slider("Wzrost cen prądu (% rocznie)", min_value=0, max_value=10, value=5) / 100
-czas_eksploatacji = st.sidebar.slider("Czas eksploatacji instalacji (lata)", min_value=10, max_value=30, value=25)
+dotacja = st.sidebar.number_input("Dotacja na instalację (zł)", min_value=0, max_value=20000, value=5000)
 
-# Obliczenia
-roczne_zuzycie = zuzycie_miesieczne * 12
-powierzchnia_panelu = 1.7  # Średnia powierzchnia jednego panelu [m²]
+# Parametry magazynu energii
+st.sidebar.header("Magazyn Energii")
+magazyn_energii = st.sidebar.checkbox("Czy posiadasz magazyn energii?")
+if magazyn_energii:
+    pojemnosc_magazynu = st.sidebar.number_input("Pojemność magazynu energii (kWh)", min_value=2, max_value=20, value=10)
+    sprawnosc_magazynu = st.sidebar.slider("Sprawność magazynu (%)", min_value=70, max_value=95, value=90) / 100
+    koszt_magazynu = st.sidebar.number_input("Koszt magazynu energii (zł)", min_value=5000, max_value=50000, value=20000)
 
-# Obliczenie maksymalnej mocy instalacji, ograniczonej przez dach
-liczba_paneli = int(powierzchnia_dachu / powierzchnia_panelu)
-moc_max = liczba_paneli * (moc_panelu / 1000)
+# Parametry pompy ciepłej
+st.sidebar.header("Pompa Cieplna")
+pompa_cieplna = st.sidebar.checkbox("Czy posiadasz pompę ciepła?")
+if pompa_cieplna:
+    moc_pompy = st.sidebar.number_input("Moc pompy cieplnej (kW)", min_value=3, max_value=20, value=10)
+    cop_pompy = st.sidebar.number_input("Współczynnik COP pompy", min_value=2.0, max_value=5.0, value=3.5, step=0.1)
+    koszt_pompy = st.sidebar.number_input("Koszt zakupu i montażu pompy (zł)", min_value=5000, max_value=50000, value=20000)
 
-# Obliczenie wymaganej mocy do pokrycia zapotrzebowania
-moc_wymagana = roczne_zuzycie / (naslonecznienie * sprawnosc_paneli)
+# Obliczenia produkcji energii
+liczba_paneli = int(powierzchnia_dachu // 1.6)
+roczna_produkcja = liczba_paneli * moc_panelu * sprawnosc_paneli * naslonecznienie / 1000
 
-# Ostateczna moc instalacji
-moc_instalacji = min(moc_max, moc_wymagana)
+# Obliczenia zużycia energii przez pompę
+if pompa_cieplna:
+    zuzycie_pompy = (moc_pompy * 12 * 30) / cop_pompy  # Praca przez 12h dziennie przez cały miesiąc
+    zuzycie_miesieczne += zuzycie_pompy
 
-# Obliczenie rocznej produkcji energii
-energia_produkcja = moc_instalacji * naslonecznienie * sprawnosc_paneli
-
-# Koszt instalacji po dotacjach
-koszt_instalacji = max(0, (moc_instalacji * cena_instalacji) - dotacja)
-
-# Roczne oszczędności
-oszczednosci_pierwszy_rok = min(energia_produkcja, roczne_zuzycie) * cena_pradu
-
-# Okres zwrotu inwestycji (bez wzrostu cen prądu)
-if oszczednosci_pierwszy_rok > 0:
-    okres_zwrotu = koszt_instalacji / oszczednosci_pierwszy_rok
+# Obliczenia wpływu magazynu energii
+if magazyn_energii:
+    energia_magazynowana = min(roczna_produkcja * sprawnosc_magazynu, pojemnosc_magazynu * 365 / 12)
+    oszczednosci_dzieki_magazynowi = energia_magazynowana * cena_pradu
 else:
-    okres_zwrotu = None
+    oszczednosci_dzieki_magazynowi = 0
 
-# Obliczenie oszczędności w czasie (z uwzględnieniem wzrostu cen energii)
-lata = np.arange(1, czas_eksploatacji + 1)
-oszczednosci_lata = oszczednosci_pierwszy_rok * ((1 + wzrost_cen_pradu) ** lata)
-oszczednosci_suma = np.cumsum(oszczednosci_lata)
+# Koszty energii
+roczny_koszt_pradu = zuzycie_miesieczne * 12 * cena_pradu
+oszczednosci = min(roczna_produkcja, zuzycie_miesieczne * 12) * cena_pradu + oszczednosci_dzieki_magazynowi
+koszt_netto = max(0, roczny_koszt_pradu - oszczednosci)
 
-# **Wyświetlanie wyników**
-st.header("Wyniki kalkulacji")
+# Wyniki
+st.subheader("Wyniki kalkulacji")
+st.write(f"Całkowita produkcja energii z PV rocznie: {roczna_produkcja:.2f} kWh")
+st.write(f"Roczny koszt energii bez PV: {roczny_koszt_pradu:.2f} zł")
+st.write(f"Oszczędności dzięki PV: {oszczednosci:.2f} zł")
+st.write(f"Roczny koszt energii po uwzględnieniu PV: {koszt_netto:.2f} zł")
 
-st.write(f"🔋 **Moc instalacji:** {moc_instalacji:.2f} kWp")
-st.write(f"⚡ **Roczna produkcja energii:** {energia_produkcja:.0f} kWh")
-st.write(f"💰 **Koszt instalacji (po dotacji):** {koszt_instalacji:,.0f} zł")
-st.write(f"📉 **Roczne oszczędności (pierwszy rok):** {oszczednosci_pierwszy_rok:,.0f} zł")
+if magazyn_energii:
+    st.write(f"Oszczędności dzięki magazynowi energii: {oszczednosci_dzieki_magazynowi:.2f} zł")
+    st.write(f"Koszt magazynu energii: {koszt_magazynu} zł")
 
-if okres_zwrotu and okres_zwrotu < czas_eksploatacji:
-    st.write(f"⏳ **Okres zwrotu inwestycji:** {okres_zwrotu:.1f} lat")
-else:
-    st.write("⚠️ **Instalacja nie zwróci się w czasie eksploatacji!**")
+if pompa_cieplna:
+    st.write(f"Dodatkowe zużycie energii przez pompę cieplną: {zuzycie_pompy:.2f} kWh miesięcznie")
+    st.write(f"Koszt pompy cieplnej: {koszt_pompy} zł")
 
-# **Wykres oszczędności w czasie**
-st.subheader("Oszczędności na przestrzeni lat")
+# Wykres porównawczy
 fig, ax = plt.subplots()
-ax.plot(lata, oszczednosci_suma, label="Łączne oszczędności", color="green")
-ax.axhline(y=koszt_instalacji, color="red", linestyle="--", label="Koszt instalacji")
-ax.set_xlabel("Lata")
-ax.set_ylabel("Oszczędności (zł)")
-ax.set_title("Przewidywane oszczędności w czasie")
-ax.legend()
+labels = ["Bez PV", "Z PV + Magazyn"]
+koszty = [roczny_koszt_pradu, koszt_netto]
+ax.bar(labels, koszty, color=["red", "green"])
+ax.set_ylabel("Koszt (zł)")
+ax.set_title("Porównanie kosztów energii")
 st.pyplot(fig)
-
-# **Dodatkowe informacje**
-st.subheader("Podsumowanie")
-if moc_instalacji < moc_wymagana:
-    st.warning("⚠️ Twoja instalacja nie pokryje całego zapotrzebowania na energię.")
-elif moc_instalacji == moc_wymagana:
-    st.success("✅ Twoja instalacja w pełni pokryje zapotrzebowanie na energię!")
-else:
-    st.info("💡 Twoja instalacja może produkować nadwyżkę energii.")
-
