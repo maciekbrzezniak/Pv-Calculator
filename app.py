@@ -256,10 +256,10 @@ with tab1:
             uzycie_pompy, zuzycie_pompa_rok, koszt_pompy, dotacja_pompy, cena_gazu, oszczednosc_gazu,
         )
 
-        st.write(f" **Moc instalacji:** {wyniki['moc_instalacji']:.2f} kWp")
+        st.write(f"🔋 **Moc instalacji:** {wyniki['moc_instalacji']:.2f} kWp")
         st.write(f"⚡ **Roczna produkcja energii:** {wyniki['energia_produkcja']:.0f} kWh")
-        st.write(f" **Łączny koszt inwestycji:** {wyniki['koszt_calosciowy']:.2f} zł")
-        st.write(f" **Roczne oszczędności (1. rok):** {wyniki['oszczednosci_pierwszy_rok']:.2f} zł")
+        st.write(f"💰 **Łączny koszt inwestycji:** {wyniki['koszt_calosciowy']:.2f} zł")
+        st.write(f"📉 **Roczne oszczędności (1. rok):** {wyniki['oszczednosci_pierwszy_rok']:.2f} zł")
 
         st.plotly_chart(wyniki['fig_savings'], use_container_width=True)
         st.plotly_chart(wyniki['fig_usage'], use_container_width=True)
@@ -344,10 +344,10 @@ with tab2:
                 )
 
                 st.markdown(f"#### Scenariusz: {row.get('scenario', i + 1)}")
-                st.write(f" **Moc instalacji**: {wyniki['moc_instalacji']:.2f} kWp")
+                st.write(f"🔋 **Moc instalacji**: {wyniki['moc_instalacji']:.2f} kWp")
                 st.write(f"⚡ **Roczna produkcja**: {wyniki['energia_produkcja']:.0f} kWh")
-                st.write(f" **Koszt całkowity**: {wyniki['koszt_calosciowy']:.2f} zł")
-                st.write(f" **Oszczędności (1. rok)**: {wyniki['oszczednosci_pierwszy_rok']:.2f} zł")
+                st.write(f"💰 **Koszt całkowity**: {wyniki['koszt_calosciowy']:.2f} zł")
+                st.write(f"📉 **Oszczędności (1. rok)**: {wyniki['oszczednosci_pierwszy_rok']:.2f} zł")
 
                 with st.expander(f"Wykresy scenariusza {row.get('scenario', i + 1)}"):
                     st.plotly_chart(wyniki['fig_savings'], use_container_width=True, key=f"savings_{i}")
