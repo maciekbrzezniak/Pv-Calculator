@@ -6,62 +6,6 @@ import plotly.graph_objects as go
 st.set_page_config(page_title="Kalkulator Fotowoltaiki", layout="wide")
 
 # ===================================================
-# Pomocnicza funkcja do symulacji autokonsumpcji z magazynem
-# ===================================================
-def symulacja_autokonsumpcji_z_baterią(roczne_zuzycie, roczna_produkcja, cena_pradu,
-                                       pojemnosc_magazynu, sprawnosc_magazynu):
-    """
-    Uproszczona, dzienna symulacja autokonsumpcji z baterią.
-    Założenia:
-      - roczne zużycie / produkcję dzielimy równomiernie na 365 dni
-      - w każdym dniu:
-          1) z bieżącej produkcji pokrywamy zużycie dzienne (daily_usage)
-          2) nadwyżkę ładujemy do baterii (bez strat ładowania w tym uproszczeniu)
-          3) jeśli brakuje energii na zużycie, pobieramy z baterii (uwzględniając sprawność rozładowania)
-          4) ewentualną resztę kupujemy z sieci
-    Zwraca:
-      - energia_dostepna (kWh/rok) = część zużycia pokryta z PV + baterii
-    """
-
-    daily_usage = roczne_zuzycie / 365.0
-    daily_prod = roczna_produkcja / 365.0
-
-    stan_baterii = 0.0
-    max_batt = pojemnosc_magazynu
-    eff = sprawnosc_magazynu
-
-    total_self_consumption = 0.0  # łączna energia pokryta z PV/baterii w ciągu roku
-
-    for _ in range(365):
-        # 1) produkcja na bieżąco pokrywa część zużycia
-        used_direct = min(daily_prod, daily_usage)
-        leftover = daily_prod - used_direct
-        usage_remain = daily_usage - used_direct
-
-        # 2) nadwyżka (leftover) ładuje baterię
-        can_store = max_batt - stan_baterii
-        stored = min(leftover, can_store)
-        stan_baterii += stored  # bez strat przy ładowaniu w tym uproszczeniu
-
-        # 3) jeśli nadal mamy brak (usage_remain), pobieramy z baterii (uwzgl. sprawność)
-        if usage_remain > 0:
-            # z baterii możemy pobrać maksymalnie stan_baterii * eff
-            available_from_batt = stan_baterii * eff
-            drawn = min(usage_remain, available_from_batt)
-            # aby uzyskać 'drawn' kWh, zużywamy z baterii drawn/eff
-            stan_baterii -= (drawn / eff)
-
-            usage_remain -= drawn
-            used_direct += drawn  # pokryte z baterii
-
-        # resztę (jeśli usage_remain > 0) kupujemy z sieci
-        total_self_consumption += (daily_usage - usage_remain)
-
-    # suma energii pokryta z PV+baterii w ciągu roku
-    return total_self_consumption
-
-
-# ===================================================
 # 1. Funkcja: wykonaj obliczenia i zwróć wyniki, wykresy
 # ===================================================
 def wykonaj_obliczenia(
@@ -108,21 +52,10 @@ def wykonaj_obliczenia(
 
     koszt_calosciowy = koszt_instalacji_netto + koszt_magazynu_netto + koszt_pompy_netto
 
-    # --- Tu wprowadzamy różnicę w wyliczaniu "energia_dostepna" ---
-    if uzycie_magazynu:
-        # Jeśli jest magazyn, wykonujemy uproszczoną dzienną symulację
-        energia_dostepna = symulacja_autokonsumpcji_z_baterią(
-            roczne_zuzycie, energia_produkcja, cena_pradu,
-            pojemnosc_magazynu, sprawnosc_magazynu
-        )
-    else:
-        # Bez magazynu - proste podejście
-        energia_dostepna = min(energia_produkcja, roczne_zuzycie)
-
-    # Roczne oszczędności (1. rok)
+    # Roczne oszczednosci
+    energia_dostepna = min(energia_produkcja, roczne_zuzycie)
     oszczednosci_pierwszy_rok = energia_dostepna * cena_pradu
 
-    # Okres zwrotu (bez uwzględniania wartości sprzedaży nadwyżki)
     if oszczednosci_pierwszy_rok > 0:
         okres_zwrotu = koszt_calosciowy / oszczednosci_pierwszy_rok
     else:
@@ -173,7 +106,7 @@ def wykonaj_obliczenia(
         'okres_zwrotu': okres_zwrotu,
         'fig_savings': fig_savings,
         'fig_usage': fig_usage,
-        'pokrycie': (moc_instalacji >= (moc_wymagana - 0.01))  # czy w przybliżeniu pokrywa zużycie
+        'pokrycie': (moc_instalacji >= (moc_wymagana - 0.01))  # czy w przybliżeniu pokrywa
     }
     return wyniki
 
@@ -189,6 +122,7 @@ tab1, tab2 = st.tabs(["Kalkutor", "Analiza danych"])
 with tab1:
     st.subheader("Kalkulator Opłacalności OZE")
 
+    # (Tu wklejamy dotychczasowy sidebar w uproszczonej postaci)
     zuzycie_miesieczne = st.number_input("Średnie miesięczne zużycie energii (kWh)", 100, 5000, 350)
     cena_pradu = st.number_input("Cena prądu (zł/kWh)", 0.1, 2.0, 0.9, step=0.01)
     powierzchnia_dachu = st.number_input("Dostępna powierzchnia dachu (m²)", 5, 200, 40)
@@ -202,6 +136,7 @@ with tab1:
 
     st.write("---")
 
+    # Magazyn
     st.subheader("Parametry magazynu energii")
     uzycie_magazynu = st.checkbox("Czy używasz magazynu energii?")
     if uzycie_magazynu:
@@ -212,6 +147,7 @@ with tab1:
     else:
         pojemnosc_magazynu, sprawnosc_magazynu, koszt_magazynu, dotacja_magazyn = 0, 1, 0, 0
 
+    # Pompa
     st.subheader("Parametry pompy ciepła")
     uzycie_pompy = st.checkbox("Czy używasz pompy ciepła?")
     if uzycie_pompy:
@@ -221,6 +157,7 @@ with tab1:
     else:
         zuzycie_pompa_rok, koszt_pompy, dotacja_pompy = 0, 0, 0
 
+    # Przycisk oblicz
     if st.button("Oblicz"):
         wyniki = wykonaj_obliczenia(
             zuzycie_miesieczne, cena_pradu, powierzchnia_dachu, naslonecznienie, sprawnosc_paneli,
@@ -229,6 +166,7 @@ with tab1:
             uzycie_pompy, zuzycie_pompa_rok, koszt_pompy, dotacja_pompy
         )
 
+        # Wyświetlenie wyników
         st.write(f"🔋 **Moc instalacji:** {wyniki['moc_instalacji']:.2f} kWp")
         st.write(f"⚡ **Roczna produkcja energii:** {wyniki['energia_produkcja']:.0f} kWh")
         st.write(f"💰 **Łączny koszt inwestycji:** {wyniki['koszt_calosciowy']:.2f} zł")
@@ -242,6 +180,7 @@ with tab1:
         else:
             st.write("⚠️ Brak oszczędności w pierwszym roku.")
 
+        # Wykresy Plotly
         st.plotly_chart(wyniki['fig_savings'], use_container_width=True)
         st.plotly_chart(wyniki['fig_usage'], use_container_width=True)
 
@@ -260,12 +199,15 @@ with tab2:
     st.write("1) Możesz **wgrać własny plik CSV** zawierający zestaw scenariuszy.")
     st.write("2) Możesz **wybrać wbudowane scenariusze** (poniżej).")
 
+    # -------------- 2B.1. Upload pliku CSV --------------
     uploaded_file = st.file_uploader("Wgraj plik CSV z przykładowymi scenariuszami", type=['csv'])
     if uploaded_file is not None:
         df_input = pd.read_csv(uploaded_file)
         st.write("**Wczytano plik**:", uploaded_file.name)
         st.dataframe(df_input)
     else:
+        # -------------- 2B.2. Wbudowane scenariusze --------------
+        # Przykładowe 3 scenariusze
         data = {
             "scenario": [1, 2, 3],
             "zuzycie_miesieczne": [350, 300, 400],
@@ -292,10 +234,12 @@ with tab2:
         st.write("**Przykładowe scenariusze** (wbudowane):")
         st.dataframe(df_input)
 
+    # -------------- 2B.3. Analiza scenariuszy --------------
     if st.button("Przetwórz scenariusze"):
         st.write("### Wyniki dla każdego scenariusza:")
         if 'df_input' in locals():
             for i, row in df_input.iterrows():
+                # Wywołaj funkcję obliczającą wyniki
                 wyniki = wykonaj_obliczenia(
                     row["zuzycie_miesieczne"],
                     row["cena_pradu"],
@@ -329,9 +273,10 @@ with tab2:
                 else:
                     st.write("- **Okres zwrotu**: brak (niskie oszczędności)")
 
+                # Wykresy
                 with st.expander(f"Wykresy scenariusza {row.get('scenario', i+1)}"):
-                    st.plotly_chart(wyniki['fig_savings'], use_container_width=True, key=f"savings_{i}")
-                    st.plotly_chart(wyniki['fig_usage'], use_container_width=True, key=f"usage_{i}")
+                    st.plotly_chart(wyniki['fig_savings'], use_container_width=True)
+                    st.plotly_chart(wyniki['fig_usage'], use_container_width=True)
 
                 if not wyniki['pokrycie']:
                     st.warning("⚠️ Instalacja nie pokryje pełnego zapotrzebowania.")

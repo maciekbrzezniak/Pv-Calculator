@@ -5,31 +5,102 @@ import plotly.graph_objects as go
 
 st.set_page_config(page_title="Kalkulator Fotowoltaiki", layout="wide")
 
+
+# ===================================================
+# Pomocnicza funkcja do symulacji autokonsumpcji z magazynem
+# ===================================================
+def symulacja_autokonsumpcji_z_baterią(roczne_zuzycie, roczna_produkcja, cena_pradu,
+                                       pojemnosc_magazynu, sprawnosc_magazynu, koszt_magazynowania=0.2):
+    """
+    Zaawansowana symulacja autokonsumpcji z baterią.
+    Uwzględnia zmienność produkcji i zużycia w skali roku oraz opłacalność poboru energii z magazynu vs. sieci.
+    """
+
+    # Zmienność produkcji i zużycia (sezonowość)
+    daily_usage = np.random.normal(roczne_zuzycie / 365.0, roczne_zuzycie * 0.1 / 365.0, 365)
+    daily_prod = np.random.normal(roczna_produkcja / 365.0, roczna_produkcja * 0.2 / 365.0, 365)
+
+    stan_baterii = 0.0
+    max_batt = pojemnosc_magazynu
+    eff = sprawnosc_magazynu
+
+    total_self_consumption = 0.0
+    total_from_network = 0.0
+    total_from_battery = 0.0
+
+    for usage, prod in zip(daily_usage, daily_prod):
+        # Pokrycie bieżącego zużycia z produkcji
+        used_direct = min(prod, usage)
+        leftover = prod - used_direct
+        usage_remain = usage - used_direct
+
+        # Ładowanie magazynu z nadwyżki tylko wtedy, gdy się to opłaca
+        if leftover > 0:
+            can_store = max_batt - stan_baterii  # ile można jeszcze zmieścić w baterii
+            stored = min(leftover, can_store)
+            # Ładowanie tylko jeśli koszt energii z magazynu (po uwzględnieniu sprawności) jest niższy niż cena prądu
+            koszt_energii_z_baterii = (1 / eff) * koszt_magazynowania
+            if koszt_energii_z_baterii < cena_pradu:
+                stan_baterii += stored
+            else:
+                total_from_network += leftover * cena_pradu  # sprzedajemy nadwyżkę
+
+        # Pobieranie energii z magazynu w razie niedoboru, jeśli jest tańsze niż zakup z sieci
+        if usage_remain > 0:
+            available_from_batt = stan_baterii * eff
+            koszt_energii_z_baterii = (1 / eff) * koszt_magazynowania
+            # Porównanie kosztu energii z magazynu i z sieci
+            if koszt_energii_z_baterii < cena_pradu:
+                drawn = min(usage_remain, available_from_batt)
+                stan_baterii -= (drawn / eff)
+                usage_remain -= drawn
+                used_direct += drawn
+                total_from_battery += drawn
+            else:
+                # Gdy magazyn się nie opłaca, pobieramy energię z sieci
+                total_from_network += usage_remain * cena_pradu
+                used_direct += 0
+
+        # Sumowanie energii pokrytej z PV i magazynu
+        total_self_consumption += (usage - usage_remain)
+
+    # Oblicz całkowity koszt energii (z sieci i z magazynu)
+    koszt_energii_z_sieci = total_from_network
+    koszt_energii_z_baterii = total_from_battery * koszt_magazynowania
+
+    # Całkowite oszczędności: różnica między kosztem energii z sieci a rzeczywistym kosztem po magazynowaniu
+    calkowite_oszczednosci = (roczne_zuzycie * cena_pradu) - (koszt_energii_z_sieci + koszt_energii_z_baterii) * 0.5
+
+    return total_self_consumption, calkowite_oszczednosci
+
+
+
 # ===================================================
 # 1. Funkcja: wykonaj obliczenia i zwróć wyniki, wykresy
 # ===================================================
 def wykonaj_obliczenia(
-    zuzycie_miesieczne,
-    cena_pradu,
-    powierzchnia_dachu,
-    naslonecznienie,
-    sprawnosc_paneli,
-    moc_panelu,
-    koszt_instalacji_kWp,
-    dotacja_instalacja,
-    wzrost_cen_pradu,
-    czas_eksploatacji,
-    uzycie_magazynu=False,
-    pojemnosc_magazynu=0,
-    sprawnosc_magazynu=1.0,
-    koszt_magazynu=0,
-    dotacja_magazyn=0,
-    uzycie_pompy=False,
-    zuzycie_pompa_rok=0,
-    koszt_pompy=0,
-    dotacja_pompy=0,
+        zuzycie_miesieczne,
+        cena_pradu,
+        powierzchnia_dachu,
+        naslonecznienie,
+        sprawnosc_paneli,
+        moc_panelu,
+        koszt_instalacji_kWp,
+        dotacja_instalacja,
+        wzrost_cen_pradu,
+        czas_eksploatacji,
+        uzycie_magazynu=False,
+        pojemnosc_magazynu=0,
+        sprawnosc_magazynu=1.0,
+        koszt_magazynu=0,
+        dotacja_magazyn=0,
+        uzycie_pompy=False,
+        zuzycie_pompa_rok=0,
+        koszt_pompy=0,
+        dotacja_pompy=0,
+        cena_gazu=0,
+        oszczednosc_gazu=0,
 ):
-
     # Obliczenia wstępne
     roczne_zuzycie = (zuzycie_miesieczne * 12) + (zuzycie_pompa_rok if uzycie_pompy else 0)
     powierzchnia_panelu = 1.7  # m², przyjęta stała
@@ -43,19 +114,39 @@ def wykonaj_obliczenia(
 
     # Koszty
     koszt_instalacji_netto = max(0, (moc_instalacji * koszt_instalacji_kWp) - dotacja_instalacja)
-    koszt_magazynu_netto = 0
+
+    # ZMIANA: Koszt magazynu to jednorazowy koszt (nie zależy od kWh * pojemność)
     if uzycie_magazynu:
-        koszt_magazynu_netto = max(0, (pojemnosc_magazynu * koszt_magazynu) - dotacja_magazyn)
+        koszt_magazynu_netto = max(0, koszt_magazynu - dotacja_magazyn)
+    else:
+        koszt_magazynu_netto = 0
+
     koszt_pompy_netto = 0
     if uzycie_pompy:
         koszt_pompy_netto = max(0, koszt_pompy - dotacja_pompy)
 
     koszt_calosciowy = koszt_instalacji_netto + koszt_magazynu_netto + koszt_pompy_netto
 
-    # Roczne oszczednosci
-    energia_dostepna = min(energia_produkcja, roczne_zuzycie)
-    oszczednosci_pierwszy_rok = energia_dostepna * cena_pradu
+    # --- Autokonsumpcja, jeśli używamy magazynu
+    if uzycie_magazynu:
+        energia_dostepna, calkowite_oszczednosci = symulacja_autokonsumpcji_z_baterią(
+            roczne_zuzycie, energia_produkcja, cena_pradu,
+            pojemnosc_magazynu, sprawnosc_magazynu
+        )
+    else:
+        energia_dostepna = min(energia_produkcja, roczne_zuzycie)
+        calkowite_oszczednosci = energia_dostepna * cena_pradu
 
+    # Roczne oszczędności (1. rok)
+    oszczednosci_pierwszy_rok = energia_dostepna * cena_pradu
+    if uzycie_magazynu:
+        oszczednosci_pierwszy_rok = calkowite_oszczednosci * 0.7  # 70% oszczędności z magazynu
+
+    # Dodatkowe oszczędności z pompy ciepła (np. zastąpienie gazu)
+    if uzycie_pompy:
+        oszczednosci_pierwszy_rok += (oszczednosc_gazu * cena_gazu) - (zuzycie_pompa_rok*cena_pradu)
+
+    # Okres zwrotu (bez uwzględniania wartości sprzedaży nadwyżki)
     if oszczednosci_pierwszy_rok > 0:
         okres_zwrotu = koszt_calosciowy / oszczednosci_pierwszy_rok
     else:
@@ -97,16 +188,15 @@ def wykonaj_obliczenia(
         yaxis_title="kWh"
     )
 
-    # Wyniki do zwrócenia
     wyniki = {
         'moc_instalacji': moc_instalacji,
         'energia_produkcja': energia_produkcja,
         'koszt_calosciowy': koszt_calosciowy,
-        'oszczednosci_pierwszy_rok': oszczednosci_pierwszy_rok,
+        'oszczednosci_pierwszy_rok': oszczednosci_suma[0],  # oszczędności w pierwszym roku
         'okres_zwrotu': okres_zwrotu,
         'fig_savings': fig_savings,
         'fig_usage': fig_usage,
-        'pokrycie': (moc_instalacji >= (moc_wymagana - 0.01))  # czy w przybliżeniu pokrywa
+        'pokrycie': (moc_instalacji >= (moc_wymagana - 0.01))  # czy w przybliżeniu pokrywa zużycie
     }
     return wyniki
 
@@ -122,7 +212,6 @@ tab1, tab2 = st.tabs(["Kalkutor", "Analiza danych"])
 with tab1:
     st.subheader("Kalkulator Opłacalności OZE")
 
-    # (Tu wklejamy dotychczasowy sidebar w uproszczonej postaci)
     zuzycie_miesieczne = st.number_input("Średnie miesięczne zużycie energii (kWh)", 100, 5000, 350)
     cena_pradu = st.number_input("Cena prądu (zł/kWh)", 0.1, 2.0, 0.9, step=0.01)
     powierzchnia_dachu = st.number_input("Dostępna powierzchnia dachu (m²)", 5, 200, 40)
@@ -136,51 +225,42 @@ with tab1:
 
     st.write("---")
 
-    # Magazyn
     st.subheader("Parametry magazynu energii")
     uzycie_magazynu = st.checkbox("Czy używasz magazynu energii?")
     if uzycie_magazynu:
         pojemnosc_magazynu = st.number_input("Pojemność magazynu (kWh)", 5, 100, 10)
         sprawnosc_magazynu = st.slider("Sprawność magazynu (%)", 80, 95, 90) / 100
-        koszt_magazynu = st.number_input("Koszt magazynu (zł/kWh)", 1500, 10000, 3000)
+
+        # ZMIANA: teraz prosimy o JEDNORAZOWY koszt magazynu (zł), a nie koszt/kWh
+        koszt_magazynu = st.number_input("Jednorazowy koszt magazynu (zł)", 1000, 100000, 15000)
         dotacja_magazyn = st.number_input("Dotacja na magazyn (zł)", 0, 20000, 5000)
     else:
         pojemnosc_magazynu, sprawnosc_magazynu, koszt_magazynu, dotacja_magazyn = 0, 1, 0, 0
 
-    # Pompa
     st.subheader("Parametry pompy ciepła")
     uzycie_pompy = st.checkbox("Czy używasz pompy ciepła?")
     if uzycie_pompy:
         zuzycie_pompa_rok = st.number_input("Roczne zużycie energii przez pompę (kWh)", 500, 20000, 2000)
         koszt_pompy = st.number_input("Koszt pompy ciepła (zł)", 3000, 50000, 20000)
         dotacja_pompy = st.number_input("Dotacja na pompę ciepła (zł)", 0, 30000, 5000)
+        cena_gazu = st.number_input("Cena gazu (zł/m³)", 2.0, 6.0, 3.5, step=0.01)
+        oszczednosc_gazu = st.number_input("Roczna oszczędność gazu (m³)", 100, 5000, 1000)
     else:
-        zuzycie_pompa_rok, koszt_pompy, dotacja_pompy = 0, 0, 0
+        zuzycie_pompa_rok, koszt_pompy, dotacja_pompy, cena_gazu, oszczednosc_gazu = 0, 0, 0, 0, 0
 
-    # Przycisk oblicz
     if st.button("Oblicz"):
         wyniki = wykonaj_obliczenia(
             zuzycie_miesieczne, cena_pradu, powierzchnia_dachu, naslonecznienie, sprawnosc_paneli,
             moc_panelu, koszt_instalacji_kWp, dotacja_instalacja, wzrost_cen_pradu, czas_eksploatacji,
             uzycie_magazynu, pojemnosc_magazynu, sprawnosc_magazynu, koszt_magazynu, dotacja_magazyn,
-            uzycie_pompy, zuzycie_pompa_rok, koszt_pompy, dotacja_pompy
+            uzycie_pompy, zuzycie_pompa_rok, koszt_pompy, dotacja_pompy, cena_gazu, oszczednosc_gazu,
         )
 
-        # Wyświetlenie wyników
-        st.write(f"🔋 **Moc instalacji:** {wyniki['moc_instalacji']:.2f} kWp")
+        st.write(f" **Moc instalacji:** {wyniki['moc_instalacji']:.2f} kWp")
         st.write(f"⚡ **Roczna produkcja energii:** {wyniki['energia_produkcja']:.0f} kWh")
-        st.write(f"💰 **Łączny koszt inwestycji:** {wyniki['koszt_calosciowy']:.2f} zł")
-        st.write(f"📉 **Roczne oszczędności (1. rok):** {wyniki['oszczednosci_pierwszy_rok']:.2f} zł")
+        st.write(f" **Łączny koszt inwestycji:** {wyniki['koszt_calosciowy']:.2f} zł")
+        st.write(f" **Roczne oszczędności (1. rok):** {wyniki['oszczednosci_pierwszy_rok']:.2f} zł")
 
-        if wyniki['okres_zwrotu'] is not None:
-            if wyniki['okres_zwrotu'] < czas_eksploatacji:
-                st.write(f"⏳ **Okres zwrotu**: {wyniki['okres_zwrotu']:.1f} lat")
-            else:
-                st.write("⚠️ Instalacja **nie zwróci** się w czasie eksploatacji.")
-        else:
-            st.write("⚠️ Brak oszczędności w pierwszym roku.")
-
-        # Wykresy Plotly
         st.plotly_chart(wyniki['fig_savings'], use_container_width=True)
         st.plotly_chart(wyniki['fig_usage'], use_container_width=True)
 
@@ -188,7 +268,6 @@ with tab1:
             st.warning("⚠️ Instalacja **nie pokryje** całego zapotrzebowania na energię.")
         else:
             st.success("✅ Instalacja **pokryje** pełne zapotrzebowanie (lub wyprodukuje nadwyżkę).")
-
 
 # ===================================================
 # 2B. ZAKŁADKA 2: Przykładowe scenariusze (CSV/wbudowane)
@@ -199,15 +278,12 @@ with tab2:
     st.write("1) Możesz **wgrać własny plik CSV** zawierający zestaw scenariuszy.")
     st.write("2) Możesz **wybrać wbudowane scenariusze** (poniżej).")
 
-    # -------------- 2B.1. Upload pliku CSV --------------
     uploaded_file = st.file_uploader("Wgraj plik CSV z przykładowymi scenariuszami", type=['csv'])
     if uploaded_file is not None:
         df_input = pd.read_csv(uploaded_file)
         st.write("**Wczytano plik**:", uploaded_file.name)
         st.dataframe(df_input)
     else:
-        # -------------- 2B.2. Wbudowane scenariusze --------------
-        # Przykładowe 3 scenariusze
         data = {
             "scenario": [1, 2, 3],
             "zuzycie_miesieczne": [350, 300, 400],
@@ -223,23 +299,26 @@ with tab2:
             "uzycie_magazynu": [True, False, True],
             "pojemnosc_magazynu": [10, 0, 15],
             "sprawnosc_magazynu": [0.90, 1.0, 0.88],
-            "koszt_magazynu": [3000, 0, 3500],
+
+            # ZMIANA: zamiast kosztu /kWh, jednorazowy koszt np. 15000 zł
+            "koszt_magazynu": [15000, 0, 20000],
             "dotacja_magazyn": [5000, 0, 7000],
+
             "uzycie_pompy": [False, True, True],
             "zuzycie_pompa_rok": [0, 2000, 3000],
             "koszt_pompy": [0, 20000, 25000],
             "dotacja_pompy": [0, 5000, 10000],
+            "cena_gazu": [0, 3.5, 3.5],
+            "oszczednosc_gazu": [0, 1000, 1500]
         }
         df_input = pd.DataFrame(data)
         st.write("**Przykładowe scenariusze** (wbudowane):")
         st.dataframe(df_input)
 
-    # -------------- 2B.3. Analiza scenariuszy --------------
     if st.button("Przetwórz scenariusze"):
         st.write("### Wyniki dla każdego scenariusza:")
         if 'df_input' in locals():
             for i, row in df_input.iterrows():
-                # Wywołaj funkcję obliczającą wyniki
                 wyniki = wykonaj_obliczenia(
                     row["zuzycie_miesieczne"],
                     row["cena_pradu"],
@@ -260,23 +339,19 @@ with tab2:
                     row["zuzycie_pompa_rok"],
                     row["koszt_pompy"],
                     row["dotacja_pompy"],
+                    row["cena_gazu"],
+                    row["oszczednosc_gazu"]
                 )
 
-                st.markdown(f"#### Scenariusz: {row.get('scenario', i+1)}")
-                st.write(f"🔋 **Moc instalacji**: {wyniki['moc_instalacji']:.2f} kWp")
+                st.markdown(f"#### Scenariusz: {row.get('scenario', i + 1)}")
+                st.write(f" **Moc instalacji**: {wyniki['moc_instalacji']:.2f} kWp")
                 st.write(f"⚡ **Roczna produkcja**: {wyniki['energia_produkcja']:.0f} kWh")
-                st.write(f"💰 **Koszt całkowity**: {wyniki['koszt_calosciowy']:.2f} zł")
-                st.write(f"📉 **Oszczędności (1. rok)**: {wyniki['oszczednosci_pierwszy_rok']:.2f} zł")
+                st.write(f" **Koszt całkowity**: {wyniki['koszt_calosciowy']:.2f} zł")
+                st.write(f" **Oszczędności (1. rok)**: {wyniki['oszczednosci_pierwszy_rok']:.2f} zł")
 
-                if wyniki['okres_zwrotu']:
-                    st.write(f"⏳ **Okres zwrotu**: {wyniki['okres_zwrotu']:.1f} lat")
-                else:
-                    st.write("- **Okres zwrotu**: brak (niskie oszczędności)")
-
-                # Wykresy
-                with st.expander(f"Wykresy scenariusza {row.get('scenario', i+1)}"):
-                    st.plotly_chart(wyniki['fig_savings'], use_container_width=True)
-                    st.plotly_chart(wyniki['fig_usage'], use_container_width=True)
+                with st.expander(f"Wykresy scenariusza {row.get('scenario', i + 1)}"):
+                    st.plotly_chart(wyniki['fig_savings'], use_container_width=True, key=f"savings_{i}")
+                    st.plotly_chart(wyniki['fig_usage'], use_container_width=True, key=f"usage_{i}")
 
                 if not wyniki['pokrycie']:
                     st.warning("⚠️ Instalacja nie pokryje pełnego zapotrzebowania.")
