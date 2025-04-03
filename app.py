@@ -204,7 +204,7 @@ def wykonaj_obliczenia(
 # ===================================================
 # 2. Zakładki w Streamlit
 # ===================================================
-tab1, tab2 = st.tabs(["Kalkutor", "Analiza danych"])
+tab1, tab2 = st.tabs(["Kalkulator", "Analiza danych"])
 
 # ===================================================
 # 2A. ZAKŁADKA 1: Wprowadzanie danych ręcznie
