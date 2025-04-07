@@ -213,7 +213,7 @@ with tab1:
     st.subheader("Kalkulator Opłacalności OZE")
 
     zuzycie_miesieczne = st.number_input("Średnie miesięczne zużycie energii (kWh)", 100, 5000, 350)
-    cena_pradu = st.number_input("Cena prądu (zł/kWh)", 0.1, 2.0, 0.9, step=0.01)
+    cena_pradu = st.number_input("Cena energii elektrycznej (zł/kWh)", 0.1, 2.0, 0.9, step=0.01)
     powierzchnia_dachu = st.number_input("Dostępna powierzchnia dachu (m²)", 5, 200, 40)
     naslonecznienie = st.number_input("Nasłonecznienie w regionie (kWh/m²/rok)", 800, 1500, 1100)
     sprawnosc_paneli = st.slider("Sprawność paneli (%)", 15, 22, 20) / 100
